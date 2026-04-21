@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Cidades ESGInteligentes - Documentação Técnica</title>
+<style>
+  @page { size: A4; margin: 2.2cm 2cm; @bottom-right { content: "Página " counter(page) " / " counter(pages); font-size: 9pt; color: #888; } }
+  body { font-family: "Helvetica", "Arial", sans-serif; font-size: 11pt; line-height: 1.5; color: #222; }
+  h1 { color: #205a2c; border-bottom: 3px solid #2d8f3b; padding-bottom: 6px; page-break-before: always; }
+  h1.first { page-break-before: avoid; }
+  h2 { color: #2d8f3b; margin-top: 1.6em; }
+  h3 { color: #444; }
+  code { background: #f3f3f3; padding: 1px 4px; border-radius: 3px; font-family: "Hack", "Consolas", monospace; font-size: 10pt; }
+  pre { background: #f6f6f6; border-left: 3px solid #2d8f3b; padding: 8px 10px; font-family: "Hack", "Consolas", monospace; font-size: 9pt; overflow-wrap: break-word; white-space: pre-wrap; border-radius: 3px; }
+  table { border-collapse: collapse; margin: 0.6em 0; width: 100%; font-size: 10pt; }
+  th, td { border: 1px solid #bbb; padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #e9f3ea; }
+  img { max-width: 100%; border: 1px solid #ccc; border-radius: 4px; margin: 8px 0; }
+  figure { margin: 14px 0; page-break-inside: avoid; }
+  figcaption { font-size: 9pt; color: #555; font-style: italic; text-align: center; margin-top: 4px; }
+  .cover { text-align: center; padding-top: 3cm; }
+  .cover h1 { border: none; font-size: 28pt; color: #205a2c; }
+  .cover .sub { font-size: 14pt; color: #555; margin-top: 1em; }
+  .cover .meta { margin-top: 4cm; font-size: 11pt; }
+  .checklist td:last-child { text-align: center; font-size: 14pt; }
+  .ok { color: #2d8f3b; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <h1 class="first">Projeto – Cidades ESGInteligentes</h1>
+  <div class="sub">Plataforma de Monitoramento ESG com Pipeline CI/CD, Containerização Docker e Deploy Automatizado</div>
+  <div class="sub"><em>FIAP – Análise e Desenvolvimento de Sistemas</em></div>
+  <div class="meta">
+    <strong>Integrantes:</strong><br>
+    João Pedro Fernandes Silva – RM561005<br>
+    Pedro Teixeira Spinola – RM560104<br>
+    Thiago C. G. Antunes – RM559359<br><br>
+    <strong>Data:</strong> 21/abr/2026<br>
+    <strong>Repositório:</strong> https://github.com/lpsgverrilla/fiap-esg-devops
+  </div>
+</div>
+
+<h1>1. Descrição do Projeto</h1>
+<p>O projeto <strong>Cidades ESGInteligentes</strong> é uma plataforma web de monitoramento de indicadores ESG (Environmental, Social, Governance) construída sobre o trabalho acadêmico anterior do grupo (<em>Monitoramento de Emissões de Carbono</em>, MongoDB/NoSQL). A entrega desta disciplina adiciona à aplicação original todo o ciclo DevOps: containerização, orquestração multi-serviço, suíte de testes automatizados, pipeline de CI/CD e deploy automatizado em dois ambientes (staging e produção) em domínios com TLS.</p>
+
+<p>A API REST implementa operações CRUD para as cinco collections ESG (<code>empresas</code>, <code>emissoes</code>, <code>impacto_social</code>, <code>governanca</code>, <code>metas_sustentabilidade</code>), aproveitando a flexibilidade schema-less do MongoDB — cada empresa registra apenas os indicadores que fazem sentido para seu setor.</p>
+
+<h2>Ambientes em produção</h2>
+<table>
+  <tr><th>Ambiente</th><th>URL pública</th><th>Branch que dispara deploy</th><th>Porta interna</th></tr>
+  <tr><td>Produção</td><td>https://esg.pedrots.com.br</td><td><code>main</code></td><td>127.0.0.1:8007</td></tr>
+  <tr><td>Staging</td><td>https://esg-staging.pedrots.com.br</td><td><code>develop</code></td><td>127.0.0.1:8006</td></tr>
+</table>
+
+<h1>2. Pipeline CI/CD</h1>
+
+<h2>Ferramenta</h2>
+<p><strong>GitHub Actions</strong>, utilizando <strong>GitHub Environments</strong> para escopar secrets por ambiente (o <code>STAGING_DEPLOY_TOKEN</code> só é injetado em jobs vinculados ao environment <code>staging</code>; o <code>PROD_DEPLOY_TOKEN</code>, apenas em jobs de <code>production</code>).</p>
+
+<h2>Workflows</h2>
+
+<h3>2.1 ci.yml – Integração Contínua</h3>
+<p>Dispara em <strong>todo push ou pull request em qualquer branch</strong>. Garante que o código nunca regrida antes de chegar às branches protegidas.</p>
+<ul>
+  <li><strong>Job <code>lint-and-test</code></strong>: executa <code>ruff check</code>, <code>ruff format --check</code> e <code>pytest</code> (7 testes cobrindo health, OpenAPI, ciclo CRUD completo em empresas e flexibilidade schema-less em emissões).</li>
+  <li><strong>Job <code>docker-build</code></strong>: usa Buildx com cache GHA para montar a imagem Docker. Falha rápido se o Dockerfile ou dependências quebram. Depende do <code>lint-and-test</code>.</li>
+</ul>
+
+<h3>2.2 deploy.yml – Entrega Contínua</h3>
+<p>Dispara em push nas branches <code>main</code> e <code>develop</code>. Sequência:</p>
+<ol>
+  <li>Job <strong><code>test</code></strong>: guard-rail — reexecuta a suíte pytest.</li>
+  <li>Condicionalmente, um dos dois jobs roda:
+    <ul>
+      <li><code>deploy-staging</code> (se branch = <code>develop</code>): <code>POST https://esg-staging.pedrots.com.br/hooks/deploy-fiap-esg-staging</code> com header <code>X-Deploy-Token</code>.</li>
+      <li><code>deploy-production</code> (se branch = <code>main</code>): <code>POST https://esg.pedrots.com.br/hooks/deploy-fiap-esg-production</code>.</li>
+    </ul>
+  </li>
+  <li>No VPS, <code>adnanh/webhook</code> valida o token e invoca o <code>deploy.sh</code> do ambiente:
+    <pre>git fetch + checkout branch correta
+docker compose build --pull
+docker compose up -d --remove-orphans</pre>
+  </li>
+  <li>O job espera o endpoint <code>/health</code> responder <code>{"status":"ok"}</code> por até 150&nbsp;s antes de marcar verde.</li>
+</ol>
+
+<h2>Fluxo de trabalho recomendado</h2>
+<pre>feature branch → PR → CI verde → merge em develop
+                                  ↓
+                       deploy automático em staging
+                                  ↓
+                       validação manual no ambiente
+                                  ↓
+            PR develop → main → deploy automático em produção</pre>
+
+<h1>3. Docker – Arquitetura e Estratégia</h1>
+
+<h2>3.1 Dockerfile (multi-stage)</h2>
+<p>Imagem Python 3.12-slim em dois estágios:</p>
+<ul>
+  <li><strong>Builder</strong>: instala dependências em prefixo isolado (<code>/install</code>), sem sobrepor o site-packages do sistema.</li>
+  <li><strong>Runtime</strong>: copia apenas as dependências instaladas e o código-fonte; executa como usuário não-root <code>app</code>; expõe a porta 8000; define <code>HEALTHCHECK</code> interno consultando <code>/health</code>.</li>
+</ul>
+<p>Resultado: imagem final ~180&nbsp;MB, sem toolchain de build, superfície de ataque mínima.</p>
+
+<h2>3.2 docker-compose.yml</h2>
+<p>Dois serviços em rede Docker dedicada, com nomes parametrizados pelo <code>APP_ENV</code> (permite rodar múltiplas instâncias isoladas no mesmo host):</p>
+<ul>
+  <li><strong><code>api</code></strong> – FastAPI + Uvicorn. Depende do healthcheck do <code>mongo</code> estar verde antes de subir.</li>
+  <li><strong><code>mongo</code></strong> – MongoDB 7, volume nomeado <code>mongo-data</code>, healthcheck via <code>mongosh ping</code>. O seed inicial é executado automaticamente pela imagem oficial do Mongo ao encontrar o arquivo <code>/docker-entrypoint-initdb.d/01-seed.js</code>, populando as 5 collections com 10 documentos cada na primeira boot.</li>
+</ul>
+
+<h2>3.3 Arquitetura no VPS</h2>
+<pre>Internet ─┬─► nginx :443 (TLS) ─► esg.pedrots.com.br         ─► 127.0.0.1:8007 ─► api(prod)    ─► mongo(prod)
+          └─► nginx :443 (TLS) ─► esg-staging.pedrots.com.br ─► 127.0.0.1:8006 ─► api(staging) ─► mongo(staging)
+
+                                adnanh/webhook (127.0.0.1:9000)
+                                  ├─► /opt/fiap-esg/staging/deploy.sh
+                                  └─► /opt/fiap-esg/production/deploy.sh</pre>
+
+<p>Cada ambiente tem <strong>container, volume e rede Docker isolados</strong> — zero cross-contamination entre staging e produção. O certificado TLS é um SAN emitido pelo Let's Encrypt cobrindo os dois domínios, com auto-renovação via systemd timer.</p>
+
+<h2>3.4 Comandos úteis</h2>
+<pre># Subir localmente
+docker compose up --build
+
+# Verificar seed
+curl localhost:8000/empresas/stats/count    # → {"count":10}
+
+# Derrubar preservando volume
+docker compose down
+
+# Derrubar limpando volume (reseed na próxima subida)
+docker compose down -v
+
+# Ver estado no VPS
+ssh root@vps 'docker ps --filter name=fiap-esg'</pre>
+
+<h1>4. Evidências</h1>
+
+<h2>4.1 Pipeline GitHub Actions – lista de execuções</h2>
+<figure>
+  <img src="evidence/gha-runs.png" alt="Lista de runs na aba Actions do GitHub">
+  <figcaption>Runs recentes: CI e Deploy verdes nas branches <code>main</code> e <code>develop</code> após o fix de <em>compose project name</em>.</figcaption>
+</figure>
+
+<h2>4.2 Deploy verde em Produção</h2>
+<figure>
+  <img src="evidence/gha-deploy-production-run.png" alt="Run de deploy em produção">
+  <figcaption>Job <code>deploy-production</code> concluído — passa pelo guard-rail de testes, dispara o webhook e confirma o healthcheck em <code>https://esg.pedrots.com.br/health</code>.</figcaption>
+</figure>
+
+<h2>4.3 Deploy verde em Staging</h2>
+<figure>
+  <img src="evidence/gha-deploy-staging-run.png" alt="Run de deploy em staging">
+  <figcaption>Job <code>deploy-staging</code> concluído com mesmo fluxo para <code>https://esg-staging.pedrots.com.br</code>.</figcaption>
+</figure>
+
+<h2>4.4 API rodando em Produção – Swagger UI</h2>
+<figure>
+  <img src="evidence/swagger-production.png" alt="Swagger UI em produção">
+  <figcaption>Swagger interativo em <code>https://esg.pedrots.com.br/docs</code> listando os endpoints das 5 collections ESG.</figcaption>
+</figure>
+
+<h2>4.5 API rodando em Staging – Swagger UI</h2>
+<figure>
+  <img src="evidence/swagger-staging.png" alt="Swagger UI em staging">
+  <figcaption>Mesma documentação servida em <code>https://esg-staging.pedrots.com.br/docs</code> — ambientes independentes.</figcaption>
+</figure>
+
+<h2>4.6 Estado dos containers e reverse proxy no VPS</h2>
+<pre>=== docker ps (ambos ambientes) ===
+NAMES                       STATUS                   PORTS
+fiap-esg-api-staging        Up 5 minutes (healthy)   127.0.0.1:8006->8000/tcp
+fiap-esg-mongo-staging      Up 5 minutes (healthy)   27017/tcp
+fiap-esg-api-production     Up 8 minutes (healthy)   127.0.0.1:8007->8000/tcp
+fiap-esg-mongo-production   Up 9 minutes (healthy)   27017/tcp
+
+=== webhook hooks cadastrados ===
+    "id": "deploy-fiap-esg-staging",
+    "id": "deploy-fiap-esg-production",
+
+=== nginx sites habilitados ===
+fiap-esg-production
+fiap-esg-staging
+
+=== certbot cert FIAP ESG ===
+  Certificate Name: esg-staging.pedrots.com.br
+    Domains: esg-staging.pedrots.com.br esg.pedrots.com.br
+    Expiry Date: 2026-07-20 (VALID: 89 days)</pre>
+
+<h2>4.7 Smoke tests pós-deploy</h2>
+<pre>$ curl https://esg.pedrots.com.br/health
+{"status":"ok","env":"production","db":"ok"}
+
+$ curl https://esg-staging.pedrots.com.br/health
+{"status":"ok","env":"staging","db":"ok"}
+
+$ curl https://esg.pedrots.com.br/empresas/stats/count
+{"count":10}
+
+$ curl https://esg-staging.pedrots.com.br/empresas/stats/count
+{"count":10}
+
+$ curl 'https://esg.pedrots.com.br/emissoes?limit=1'
+[{"_id":"69e7e92f6ad955ad8544ba93","empresa":"EcoLog Transportes",
+  "ano":2025,"emissao_CO2_ton":1200,"diesel_litros":500000,
+  "energia_renovavel_percentual":25}]</pre>
+
+<h1>5. Desafios e soluções</h1>
+
+<h3>Colisão de <em>project name</em> do Docker Compose</h3>
+<p><strong>Sintoma:</strong> o primeiro deploy de staging subia no ambiente de produção sem criar os containers novos — o healthcheck ficou 502 por mais de 2 minutos até dar timeout.</p>
+<p><strong>Diagnóstico:</strong> como os dois ambientes clonam o repo para diretórios chamados <code>/opt/fiap-esg/staging/app</code> e <code>/opt/fiap-esg/production/app</code>, o Docker Compose derivou o mesmo <em>project name</em> (<code>app</code>) para os dois, tratando-os como o mesmo projeto e reutilizando os containers de produção.</p>
+<p><strong>Solução:</strong> adicionar <code>name: fiap-esg-${APP_ENV:-local}</code> no topo do <code>docker-compose.yml</code>. Isso garante que cada ambiente seja um <em>project</em> distinto, com containers, rede e volume isolados.</p>
+
+<h3>Emissão de certificado TLS para dois subdomínios novos</h3>
+<p><strong>Sintoma:</strong> o nginx não iniciava com os configs finais pois os caminhos de cert ainda não existiam.</p>
+<p><strong>Solução:</strong> aplicar configs HTTP stub primeiro (só porta 80, com <code>/.well-known/acme-challenge/</code>), rodar <code>certbot certonly --webroot</code> para os dois domínios em uma única chamada (gerando um cert SAN), e só então substituir pelos configs HTTPS finais.</p>
+
+<h3>Webhook compartilhado entre vários apps no VPS</h3>
+<p>O host já rodava outros 3 deploy webhooks (<code>deploy-assistente-sus</code>, <code>deploy-quando-ein</code>, <code>deploy-blog</code>). O padrão existente foi preservado: adicionamos 2 novos hooks em <code>/etc/webhook/hooks.json</code>, cada um validando um <code>X-Deploy-Token</code> independente, e reiniciamos o <code>webhook.service</code> para recarregar a configuração sem afetar os outros deploys.</p>
+
+<h3>Seed automático do MongoDB</h3>
+<p>O trabalho anterior do grupo já trazia o script JS de seed das 5 collections. Em vez de reescrevê-lo em Python, aproveitamos o comportamento nativo da imagem oficial do MongoDB: arquivos <code>.js</code> em <code>/docker-entrypoint-initdb.d/</code> são executados automaticamente via <code>mongosh</code> contra o database definido em <code>MONGO_INITDB_DATABASE</code> na primeira subida. Apenas removemos a diretiva <code>use &lt;db&gt;</code> (exclusiva do shell interativo) e mantivemos todos os <code>insertMany()</code>.</p>
+
+<h1>6. Tecnologias utilizadas</h1>
+<table>
+  <tr><th>Camada</th><th>Ferramentas</th></tr>
+  <tr><td>Linguagem / Runtime</td><td>Python 3.12</td></tr>
+  <tr><td>Framework Web</td><td>FastAPI + Uvicorn</td></tr>
+  <tr><td>Validação / DTOs</td><td>Pydantic v2 + pydantic-settings</td></tr>
+  <tr><td>Banco de dados</td><td>MongoDB 7 (driver assíncrono Motor)</td></tr>
+  <tr><td>Testes</td><td>pytest + pytest-asyncio + httpx + mongomock-motor</td></tr>
+  <tr><td>Qualidade</td><td>Ruff (lint + format)</td></tr>
+  <tr><td>Containerização</td><td>Docker multi-stage + Docker Compose v2</td></tr>
+  <tr><td>CI/CD</td><td>GitHub Actions + GitHub Environments</td></tr>
+  <tr><td>Webhook deploy</td><td>adnanh/webhook (binário Go, systemd)</td></tr>
+  <tr><td>Reverse proxy / TLS</td><td>nginx + Let's Encrypt (certbot)</td></tr>
+  <tr><td>Hospedagem</td><td>Hetzner Cloud CX33 (Ubuntu 24.04) — <code>pedrots.com.br</code></td></tr>
+</table>
+
+<h1>7. Checklist de Entrega</h1>
+<table class="checklist">
+  <tr><th>Item</th><th>OK</th></tr>
+  <tr><td>Projeto compactado em .ZIP com estrutura organizada</td><td class="ok">✔</td></tr>
+  <tr><td>Dockerfile funcional (multi-stage, não-root, healthcheck)</td><td class="ok">✔</td></tr>
+  <tr><td>docker-compose.yml (api + mongo, volume, rede, env vars)</td><td class="ok">✔</td></tr>
+  <tr><td>Pipeline com etapas de build, teste e deploy</td><td class="ok">✔</td></tr>
+  <tr><td>README.md com instruções e prints</td><td class="ok">✔</td></tr>
+  <tr><td>Documentação técnica com evidências (este PDF)</td><td class="ok">✔</td></tr>
+  <tr><td>Deploy realizado em staging (<code>esg-staging.pedrots.com.br</code>)</td><td class="ok">✔</td></tr>
+  <tr><td>Deploy realizado em produção (<code>esg.pedrots.com.br</code>)</td><td class="ok">✔</td></tr>
+</table>
+
+</body>
+</html>

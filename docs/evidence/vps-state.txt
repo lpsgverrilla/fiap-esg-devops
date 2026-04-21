@@ -1,0 +1,25 @@
+=== docker ps (ambos ambientes) ===
+NAMES                       STATUS                   PORTS
+fiap-esg-api-staging        Up 5 minutes (healthy)   127.0.0.1:8006->8000/tcp
+fiap-esg-mongo-staging      Up 5 minutes (healthy)   27017/tcp
+fiap-esg-api-production     Up 8 minutes (healthy)   127.0.0.1:8007->8000/tcp
+fiap-esg-mongo-production   Up 9 minutes (healthy)   27017/tcp
+
+=== webhook hooks cadastrados ===
+    "id": "deploy-fiap-esg-staging",
+    "id": "deploy-fiap-esg-production",
+
+=== nginx sites habilitados ===
+fiap-esg-production
+fiap-esg-staging
+
+=== certbot cert FIAP ESG ===
+  Certificate Name: esg-staging.pedrots.com.br
+    Serial Number: 60db39e84dfa660e7d558c250e4227753b7
+    Key Type: ECDSA
+    Domains: esg-staging.pedrots.com.br esg.pedrots.com.br
+    Expiry Date: 2026-07-20 20:15:43+00:00 (VALID: 89 days)
+    Certificate Path: /etc/letsencrypt/live/esg-staging.pedrots.com.br/fullchain.pem
+    Private Key Path: /etc/letsencrypt/live/esg-staging.pedrots.com.br/privkey.pem
+  Certificate Name: grafana.eyeraft.com
+    Serial Number: 68aaab729c9fc663d16e7cebb1c27120fde
