@@ -1,0 +1,91 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+
+jobs:
+  test:
+    name: Test before deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: pytest -q
+
+  deploy-staging:
+    name: Deploy to staging
+    if: github.ref == 'refs/heads/develop'
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://esg-staging.pedrots.com.br
+    steps:
+      - name: Trigger staging webhook
+        env:
+          DEPLOY_TOKEN: ${{ secrets.STAGING_DEPLOY_TOKEN }}
+        run: |
+          set -euo pipefail
+          response=$(curl -sS -o /tmp/response.txt -w "%{http_code}" \
+            -X POST \
+            -H "X-Deploy-Token: ${DEPLOY_TOKEN}" \
+            https://esg-staging.pedrots.com.br/hooks/deploy-fiap-esg-staging)
+          echo "HTTP ${response}"
+          cat /tmp/response.txt
+          test "${response}" = "200"
+
+      - name: Wait for health check
+        run: |
+          set -euo pipefail
+          for i in {1..30}; do
+            if curl -fsS https://esg-staging.pedrots.com.br/health | grep -q '"status":"ok"'; then
+              echo "Staging healthy after ${i} attempts"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Staging failed to become healthy" >&2
+          exit 1
+
+  deploy-production:
+    name: Deploy to production
+    if: github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://esg.pedrots.com.br
+    steps:
+      - name: Trigger production webhook
+        env:
+          DEPLOY_TOKEN: ${{ secrets.PROD_DEPLOY_TOKEN }}
+        run: |
+          set -euo pipefail
+          response=$(curl -sS -o /tmp/response.txt -w "%{http_code}" \
+            -X POST \
+            -H "X-Deploy-Token: ${DEPLOY_TOKEN}" \
+            https://esg.pedrots.com.br/hooks/deploy-fiap-esg-production)
+          echo "HTTP ${response}"
+          cat /tmp/response.txt
+          test "${response}" = "200"
+
+      - name: Wait for health check
+        run: |
+          set -euo pipefail
+          for i in {1..30}; do
+            if curl -fsS https://esg.pedrots.com.br/health | grep -q '"status":"ok"'; then
+              echo "Production healthy after ${i} attempts"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Production failed to become healthy" >&2
+          exit 1
