@@ -1,3 +1,5 @@
+name: fiap-esg-${APP_ENV:-local}
+
 services:
   api:
     build: .
